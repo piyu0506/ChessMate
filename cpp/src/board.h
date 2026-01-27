@@ -15,6 +15,7 @@ public:
     Board();
     void reset();
     void printBoard();
+    void getVector(float *output);
     
 private:
     char getPieceChar(int square);

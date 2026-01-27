@@ -16,7 +16,7 @@ void Board::reset() {
     bitboards[WHITE * 6 + ROOK]   = 0x0000000000000081ULL; // A1, H1
     bitboards[WHITE * 6 + QUEEN]  = 0x0000000000000008ULL; // D1
     bitboards[WHITE * 6 + KING]   = 0x0000000000000010ULL; // E1
-
+    
     // --- BLACK PIECES ---
     bitboards[BLACK * 6 + PAWN]   = 0x00FF000000000000ULL; // Rank 7
     bitboards[BLACK * 6 + KNIGHT] = 0x4200000000000000ULL; // B8, G8
@@ -34,6 +34,15 @@ void Board::reset() {
     for (int i = 6; i < 12; i++) occupancy[BLACK] |= bitboards[i];
 
     occupancy[BOTH] = occupancy[WHITE] | occupancy[BLACK];
+}
+
+
+void Board::getVector (float *output) {
+    for (int p = 0; p < 12; p++) {
+        for (int sq = 0; sq < 64; sq++) {
+            output[p * 64 + sq] = (bitboards[p] >> sq) & 1 ? 1.0f : 0.0f;
+        }
+    }
 }
 
 char Board::getPieceChar(int square) {
