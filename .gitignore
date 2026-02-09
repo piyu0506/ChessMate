@@ -1,1 +1,12 @@
-chess.exe
+cpp/bin/
+*.exe
+*.o
+
+python/data/*.pgn
+python/data/*.npy
+python/models/*.pth
+
+__pycache__/
+.env
+venv/
+.vscode/
