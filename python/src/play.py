@@ -1,224 +1,190 @@
 import pygame
 import chess
 import torch
-import torch.nn.functional as F
-import numpy as np
-import sys
 import os
+import sys
 
-# ==========================================
-# 1. SETUP & PATHS
-# ==========================================
-# Window Settings
-WIDTH, HEIGHT = 640, 640
-SQ_SIZE = WIDTH // 8
-FPS = 60
-
-# Colors
-LIGHT_SQ = (240, 217, 181)  # Wood Light
-DARK_SQ = (181, 136, 99)    # Wood Dark
-HIGHLIGHT = (255, 255, 0)   # Bright Yellow for selection
-TEXT_COLOR = (0, 0, 0)
-
-# Paths
+# --- 1. SETUP PATHS & IMPORTS ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-sys.path.append(os.path.join(project_root, 'models'))
-sys.path.append(os.path.join(project_root, 'src'))
-ASSET_DIR = os.path.join(project_root, 'assets')
+project_root = os.path.dirname(current_dir) # python/
+sys.path.append(current_dir)
 
-# Import Model
 try:
     from model import ChessNet
-    from encoder import encode_move
+    from mcts import MCTS
 except ImportError:
-    print("❌ Error: 'model.py' or 'encoder.py' missing.")
+    print("CRITICAL ERROR: Could not import 'model' or 'mcts'.")
+    print("Make sure model.py and mcts.py are in the same folder as play.py")
     sys.exit(1)
 
-MODEL_PATH = os.path.join(project_root, 'models', 'chess_model.pth')
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# --- 2. CONFIGURATION ---
+WIDTH, HEIGHT = 640, 640
+SQ_SIZE = WIDTH // 8
+ASSET_PATH = os.path.join(project_root, "assets")
+MODEL_PATH = os.path.join(project_root, "models", "chess_model.pth")
 
-# ==========================================
-# 2. AI & LOGIC
-# ==========================================
-def board_to_tensor(board):
-    """ Converts board to (12, 8, 8) tensor. """
-    tensor = np.zeros((12, 8, 8), dtype=np.float32)
-    piece_map = {"P": 0, "N": 1, "B": 2, "R": 3, "Q": 4, "K": 5,
-                 "p": 6, "n": 7, "b": 8, "r": 9, "q": 10, "k": 11}
-    for square, piece in board.piece_map().items():
-        rank, file = divmod(square, 8)
-        if piece.symbol() in piece_map:
-            tensor[piece_map[piece.symbol()], rank, file] = 1.0
-    return torch.from_numpy(tensor).unsqueeze(0).to(DEVICE)
-
-def get_ai_move(model, board):
-    model.eval()
-    with torch.no_grad():
-        tensor = board_to_tensor(board)
-        policy_logits, value = model(tensor)
-    
-    # Flatten outputs
-    policy_probs = F.softmax(policy_logits.flatten(), dim=0).cpu().numpy()
-    
-    legal_moves = list(board.legal_moves)
-    move_scores = []
-
-    # Score every legal move
-    for move in legal_moves:
-        idx = encode_move(move, board.turn)
-        score = 0
-        if idx is not None and idx < len(policy_probs):
-            score = policy_probs[idx]
-        move_scores.append((move, score))
-    
-    # Sort by score (descending)
-    move_scores.sort(key=lambda x: x[1], reverse=True)
-    
-    # --- DEBUG: Print what the AI is thinking ---
-    print(f"\n🧠 AI Thought Process (Value: {value.item():.2f}):")
-    for i in range(min(3, len(move_scores))):
-        m, s = move_scores[i]
-        print(f"   {i+1}. {m.uci()} (Conf: {s*100:.1f}%)")
-        
-    # Pick best move (or random if confused)
-    if not move_scores:
-        return np.random.choice(legal_moves)
-    
-    return move_scores[0][0]
-
-# ==========================================
-# 3. GRAPHICS ENGINE
-# ==========================================
-class ChessGUI:
-    def __init__(self):
-        pygame.init()
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        pygame.display.set_caption(f"Chess AI - Running on {DEVICE}")
-        self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont('Arial', 36, bold=True)
-        
-        self.board = chess.Board()
-        self.selected_sq = None
-        self.ai_thinking = False
-        self.game_over = False
-        
-        # Load Model
-        self.model = ChessNet(num_res_blocks=6).to(DEVICE)
-        if os.path.exists(MODEL_PATH):
-            try:
-                self.model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
-                print("✅ Model loaded successfully.")
-            except:
-                print("⚠️ Model architecture mismatch. Check num_res_blocks.")
+# --- 3. GRAPHICS HELPERS ---
+def load_piece_images():
+    pieces = ['wp', 'wn', 'wb', 'wr', 'wq', 'wk', 'bp', 'bn', 'bb', 'br', 'bq', 'bk']
+    images = {}
+    for p in pieces:
+        img_path = os.path.join(ASSET_PATH, f"{p}.png")
+        if os.path.exists(img_path):
+            images[p] = pygame.transform.scale(pygame.image.load(img_path), (SQ_SIZE, SQ_SIZE))
         else:
-            print("⚠️ No model file found.")
+            # Fallback square if image missing
+            s = pygame.Surface((SQ_SIZE, SQ_SIZE))
+            s.fill((200, 50, 50)) 
+            images[p] = s
+    return images
 
-        # LOAD IMAGES (Auto-Scanner)
-        self.images = {}
-        self.load_images()
+def draw_board(screen, board, selected_sq, piece_images):
+    # Draw Grid
+    for r in range(8):
+        for c in range(8):
+            color = (238, 238, 210) if (r + c) % 2 == 0 else (118, 150, 86)
+            pygame.draw.rect(screen, color, (c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+    
+    # Highlight Selection
+    if selected_sq is not None:
+        r, c = 7 - chess.square_rank(selected_sq), chess.square_file(selected_sq)
+        s = pygame.Surface((SQ_SIZE, SQ_SIZE))
+        s.set_alpha(100)
+        s.fill((255, 255, 0))
+        screen.blit(s, (c*SQ_SIZE, r*SQ_SIZE))
 
-    def load_images(self):
-        pieces = ['wp', 'wn', 'wb', 'wr', 'wq', 'wk', 'bp', 'bn', 'bb', 'br', 'bq', 'bk']
-        for p in pieces:
-            path_png = os.path.join(ASSET_DIR, f"{p}.png")
-            if os.path.exists(path_png):
-                img = pygame.image.load(path_png)
-                self.images[p] = pygame.transform.scale(img, (SQ_SIZE, SQ_SIZE))
-            # If missing, it will use text fallback automatically
+    # Highlight Last Move
+    if board.move_stack:
+        last_move = board.peek()
+        for sq in [last_move.from_square, last_move.to_square]:
+            r, c = 7 - chess.square_rank(sq), chess.square_file(sq)
+            s = pygame.Surface((SQ_SIZE, SQ_SIZE))
+            s.set_alpha(100)
+            s.fill((155, 155, 255))
+            screen.blit(s, (c*SQ_SIZE, r*SQ_SIZE))
 
-    def draw_board(self):
-        for row in range(8):
-            for col in range(8):
-                # Colors
-                color = LIGHT_SQ if (row + col) % 2 == 0 else DARK_SQ
-                
-                # Highlight Selection
-                sq_idx = (7 - row) * 8 + col
-                if self.selected_sq == sq_idx:
-                    color = HIGHLIGHT
-                
-                # Highlight Last Move
-                if self.board.move_stack:
-                    last = self.board.peek()
-                    if sq_idx == last.from_square or sq_idx == last.to_square:
-                         color = (200, 200, 50) # Yellowish tint
+    # Draw Pieces
+    for sq in chess.SQUARES:
+        p = board.piece_at(sq)
+        if p:
+            color = 'w' if p.color == chess.WHITE else 'b'
+            key = color + p.symbol().lower()
+            x = chess.square_file(sq) * SQ_SIZE
+            y = (7 - chess.square_rank(sq)) * SQ_SIZE
+            screen.blit(piece_images[key], (x, y))
 
-                pygame.draw.rect(self.screen, color, (col * SQ_SIZE, row * SQ_SIZE, SQ_SIZE, SQ_SIZE))
+# --- 4. MAIN LOOP ---
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("AlphaZero Engine (MCTS)")
+    clock = pygame.time.Clock()
+    piece_images = load_piece_images()
+    
+    board = chess.Board()
+    
+    # --- LOAD BRAIN ---
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Engine running on: {device}")
 
-    def draw_pieces(self):
-        for square in range(64):
-            piece = self.board.piece_at(square)
-            if piece:
-                color_code = 'w' if piece.color == chess.WHITE else 'b'
-                key = f"{color_code}{piece.symbol().lower()}"
-                
-                row, col = 7 - (square // 8), (square % 8)
-                x, y = col * SQ_SIZE, row * SQ_SIZE
-                
-                if key in self.images:
-                    self.screen.blit(self.images[key], (x, y))
-                else:
-                    # Text Fallback
-                    c = (0, 0, 0) if piece.color == chess.BLACK else (255, 255, 255)
-                    txt = self.font.render(piece.symbol(), True, c)
-                    self.screen.blit(txt, (x + 25, y + 15))
+    try:
+        model = ChessNet(num_res_blocks=6).to(device)
+        # Load weights safely
+        if os.path.exists(MODEL_PATH):
+            checkpoint = torch.load(MODEL_PATH, map_location=device)
+            if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['state_dict'])
+            else:
+                model.load_state_dict(checkpoint)
+            model.eval()
+            print("Model Loaded Successfully.")
+        else:
+            print(f"WARNING: No model found at {MODEL_PATH}. AI will be random/dumb.")
+        
+        # Initialize MCTS (The High Level Logic)
+        mcts_engine = MCTS(model, device, simulations=600)
 
-    def get_square(self, pos):
-        x, y = pos
-        return (7 - (y // SQ_SIZE)) * 8 + (x // SQ_SIZE)
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        return
 
-    def run(self):
-        running = True
-        while running:
-            self.draw_board()
-            self.draw_pieces()
-            if self.ai_thinking:
-                pygame.draw.circle(self.screen, (255, 0, 0), (WIDTH-20, 20), 10)
+    selected_sq = None
+    running = True
+    ai_thinking = False
+
+    while running:
+        # 1. CHECK GAME OVER (Fixes your crash)
+        if board.is_game_over():
+            draw_board(screen, board, selected_sq, piece_images)
+            
+            # Draw Game Over Text
+            font = pygame.font.SysFont('Arial', 32, bold=True)
+            text = font.render(f"Game Over: {board.result()}", True, (255, 0, 0))
+            box = pygame.Surface((400, 80))
+            box.set_alpha(200); box.fill((255, 255, 255))
+            screen.blit(box, (WIDTH//2 - 200, HEIGHT//2 - 40))
+            screen.blit(text, text.get_rect(center=(WIDTH//2, HEIGHT//2)))
+            
             pygame.display.flip()
-            self.clock.tick(FPS)
-
-            # AI Move
-            if not self.game_over and self.board.turn == chess.BLACK and not self.ai_thinking:
-                self.ai_thinking = True
-                # Redraw to show thinking indicator
-                self.draw_board(); self.draw_pieces(); 
-                pygame.draw.circle(self.screen, (255, 0, 0), (WIDTH-20, 20), 10)
-                pygame.display.flip()
-                
-                move = get_ai_move(self.model, self.board)
-                self.board.push(move)
-                self.ai_thinking = False
-                
-                if self.board.is_game_over(): self.game_over = True
-
-            # Event Handling
+            
+            # Wait for quit
             for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN and not self.game_over:
-                    if self.board.turn == chess.WHITE:
-                        sq = self.get_square(event.pos)
-                        if self.selected_sq is None:
-                            p = self.board.piece_at(sq)
-                            if p and p.color == chess.WHITE: self.selected_sq = sq
-                        else:
-                            move = chess.Move(self.selected_sq, sq)
-                            # Auto-Queen
-                            if self.board.piece_at(self.selected_sq).piece_type == chess.PAWN:
-                                if (sq // 8) in [0, 7]: move.promotion = chess.QUEEN
-                            
-                            if move in self.board.legal_moves:
-                                self.board.push(move)
-                                self.selected_sq = None
-                            else:
-                                # Reselect
-                                p = self.board.piece_at(sq)
-                                if p and p.color == chess.WHITE: self.selected_sq = sq
-                                else: self.selected_sq = None
+                if event.type == pygame.QUIT: running = False
+            continue
 
-        pygame.quit()
+        # 2. AI TURN
+        if not board.turn and not ai_thinking: # Black to move
+            ai_thinking = True
+            # Force redraw before thinking so screen doesn't freeze on old frame
+            draw_board(screen, board, selected_sq, piece_images)
+            pygame.display.flip()
+            
+            try:
+                # USE MCTS (High Level)
+                best_move = mcts_engine.search(board)
+                board.push(best_move)
+                # print(f"AI Played: {best_move}")
+            except Exception as e:
+                print(f"AI Error: {e}")
+            
+            ai_thinking = False
+
+        # 3. HUMAN INPUT
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            
+            if board.turn and event.type == pygame.MOUSEBUTTONDOWN:
+                pos = pygame.mouse.get_pos()
+                col = pos[0] // SQ_SIZE
+                row = pos[1] // SQ_SIZE
+                sq = chess.square(col, 7 - row)
+
+                if selected_sq is None:
+                    p = board.piece_at(sq)
+                    if p and p.color == chess.WHITE:
+                        selected_sq = sq
+                else:
+                    move = chess.Move(selected_sq, sq)
+                    # Auto-Queen
+                    if chess.Move(selected_sq, sq, promotion=chess.QUEEN) in board.legal_moves:
+                        move = chess.Move(selected_sq, sq, promotion=chess.QUEEN)
+                    
+                    if move in board.legal_moves:
+                        board.push(move)
+                        selected_sq = None
+                    else:
+                        # Clicked elsewhere? Reselect
+                        p = board.piece_at(sq)
+                        if p and p.color == chess.WHITE: selected_sq = sq
+                        else: selected_sq = None
+
+        # 4. RENDER
+        draw_board(screen, board, selected_sq, piece_images)
+        pygame.display.flip()
+        clock.tick(60)
+
+    pygame.quit()
 
 if __name__ == "__main__":
-    gui = ChessGUI()
-    gui.run()
+    main()
