@@ -1,6 +1,5 @@
 python/data/*.pgn
 python/data/*.npy
-python/models/*.pth
 
 __pycache__/
 .env
