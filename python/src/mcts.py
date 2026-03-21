@@ -104,8 +104,8 @@ class MCTS:
         while curr is not None:
             curr.visit_count += 1
             curr.value_sum += curr_val
-            curr = curr.parent
             curr_val = -curr_val
+            curr = curr.parent
 
     def board_to_tensor(self, board):
         tensor = np.zeros((12, 8, 8), dtype=np.float32)

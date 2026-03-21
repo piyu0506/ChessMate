@@ -3,6 +3,7 @@ import chess
 import torch
 import os
 import sys
+import threading
 
 # --- 1. SETUP PATHS & IMPORTS ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -111,6 +112,8 @@ def main():
     selected_sq = None
     running = True
     ai_thinking = False
+    ai_result = [None]   # shared container: thread writes here, main thread reads
+    t = None             # handle to the current AI thread
 
     while running:
         # 1. CHECK GAME OVER (Fixes your crash)
@@ -132,21 +135,30 @@ def main():
                 if event.type == pygame.QUIT: running = False
             continue
 
-        # 2. AI TURN
-        if not board.turn and not ai_thinking: # Black to move
+        # 2. AI TURN — launch search on a background thread
+        if not board.turn and not ai_thinking:  # Black to move
             ai_thinking = True
-            # Force redraw before thinking so screen doesn't freeze on old frame
+            ai_result[0] = None
+            # Force redraw before thinking so the screen shows the latest state
             draw_board(screen, board, selected_sq, piece_images)
             pygame.display.flip()
-            
-            try:
-                # USE MCTS (High Level)
-                best_move = mcts_engine.search(board)
-                board.push(best_move)
-                # print(f"AI Played: {best_move}")
-            except Exception as e:
-                print(f"AI Error: {e}")
-            
+
+            board_copy = board.copy()  # give the thread its own snapshot
+
+            def ai_move(b):
+                try:
+                    ai_result[0] = mcts_engine.search(b)  # works on copy only
+                except Exception as e:
+                    print(f"AI Error: {e}")
+
+            t = threading.Thread(target=ai_move, args=(board_copy,), daemon=True)
+            t.start()
+
+        # 2b. Collect AI result on the main thread once the thread is done
+        if ai_thinking and t is not None and not t.is_alive():
+            if ai_result[0] is not None:
+                board.push(ai_result[0])
+                # print(f"AI Played: {ai_result[0]}")
             ai_thinking = False
 
         # 3. HUMAN INPUT
