@@ -34,17 +34,25 @@ class MCTS:
             # 1. SELECT
             while node.is_expanded and not node.board.is_game_over():
                 move = self.select_child(node)
-                if move not in node.children:
-                    node.children[move] = MCTSNode(node.board.copy())
-                    node.children[move].board.push(move)
+                if move is None or move not in node.children:
+                    break
                 node = node.children[move]
             
             # 2. EXPAND & EVALUATE
             value = 0.0
             if not node.board.is_game_over():
-                value = self.expand(node)
+                if not node.is_expanded:
+                    value = self.expand(node)
+                else:
+                    value = node.value()
             else:
-                if node.board.is_checkmate(): value = -1.0
+                outcome = node.board.outcome()
+                if outcome is None:
+                    value = 0.0
+                elif outcome.winner is None:
+                    value = 0.0  # stalemate/draw
+                else:
+                    value = -1.0  # checkmate, loser is current node's turn
             
             # 3. BACKPROP
             self.backpropagate(node, value)
@@ -75,26 +83,34 @@ class MCTS:
         state = self.board_to_tensor(node.board).unsqueeze(0).to(self.device)
         with torch.no_grad():
             p_logits, v_val = self.model(state)
-            
-        # MASKING ILLEGAL MOVES (Crucial!)
+
+        # MASKING ILLEGAL MOVES — stable softmax over legal moves only
         p_logits = p_logits[0].cpu().numpy()
         legal_moves = list(node.board.legal_moves)
-        policy_map = {}
-        sum_exp = 0.0
-        
+
+        valid_indices = []
+        valid_moves = []
         for move in legal_moves:
             idx = encode_move(move, node.board.turn)
             if idx is not None:
-                prob = math.exp(p_logits[idx])
-                policy_map[move] = prob
-                sum_exp += prob
-        
-        for move, prob in policy_map.items():
-            prior = prob / sum_exp if sum_exp > 0 else 0
+                valid_indices.append(idx)
+                valid_moves.append(move)
+
+        if valid_moves:
+            logits = p_logits[valid_indices]
+            logits = logits - logits.max()  # numerical stability
+            probs = np.exp(logits)
+            probs /= probs.sum()
+        else:
+            # fallback: uniform over all legal moves
+            valid_moves = legal_moves
+            probs = np.full(len(legal_moves), 1.0 / max(len(legal_moves), 1))
+
+        for move, prior in zip(valid_moves, probs):
             child_board = node.board.copy()
             child_board.push(move)
-            node.children[move] = MCTSNode(child_board, parent=node, prior=prior)
-            
+            node.children[move] = MCTSNode(child_board, parent=node, prior=float(prior))
+
         node.is_expanded = True
         return v_val.item()
 
