@@ -23,7 +23,7 @@ class MCTS:
         self.model = model
         self.device = device
         self.simulations = simulations
-        self.c_puct = 1.0
+        self.c_puct = 0.8
 
     def search(self, board):
         root = MCTSNode(board)

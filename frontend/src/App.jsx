@@ -3,6 +3,8 @@ import { Chess } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import axios from "axios";
 
+const API_URL = "https://chess-engine-api-3q92.onrender.com";
+
 function App() {
   const [game, setGame] = useState(new Chess());
   const [thinking, setThinking] = useState(false);
@@ -26,13 +28,12 @@ function App() {
       return false;
     }
 
-    // Show player's move immediately
     setGame(new Chess(gameCopy.fen()));
     setThinking(true);
 
     try {
       const response = await axios.post(
-        "http://127.0.0.1:8000/move",
+        `${API_URL}/move`,
         {
           fen: game.fen(),
           move: move.from + move.to,
@@ -40,10 +41,9 @@ function App() {
       );
 
       if (response.data.success) {
-        const updatedGame = new Chess(response.data.fen);
-        setGame(updatedGame);
+        setGame(new Chess(response.data.fen));
       } else {
-        alert(response.data.message);
+        alert(response.data.message || "Move failed.");
       }
     } catch (error) {
       console.error(error);

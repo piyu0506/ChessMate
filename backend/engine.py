@@ -8,6 +8,8 @@ from mcts import MCTS
 
 class ChessEngine:
     def __init__(self):
+        torch.set_num_threads(1)
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         model_path = os.path.join(
@@ -30,7 +32,7 @@ class ChessEngine:
         self.mcts = MCTS(
             self.model,
             self.device,
-            simulations=150
+            simulations=40
         )
 
     def get_ai_response(self, fen: str, player_move: str):
@@ -55,7 +57,8 @@ class ChessEngine:
                 "result": board.result()
             }
 
-        ai_move = self.mcts.search(board)
+        with torch.inference_mode():
+            ai_move = self.mcts.search(board)
 
         if ai_move is None:
             return {
