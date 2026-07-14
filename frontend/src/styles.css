@@ -1,0 +1,101 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #0f172a;
+  color: white;
+  font-family: Inter, Segoe UI, sans-serif;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hero {
+  width: 100%;
+  text-align: center;
+  padding: 50px 20px 30px;
+}
+
+.hero h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.hero p {
+  color: #b8c1d1;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.main-content {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+}
+
+.board-card {
+  background: #1e293b;
+  padding: 25px;
+  border-radius: 20px;
+  box-shadow: 0 15px 35px rgba(0,0,0,.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.status {
+  margin-bottom: 18px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.new-game-btn {
+  margin-top: 22px;
+  padding: 12px 28px;
+  border: none;
+  border-radius: 12px;
+  background: #2563eb;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: .25s;
+}
+
+.new-game-btn:hover {
+  background: #1d4ed8;
+  transform: translateY(-2px);
+}
+
+.footer {
+  margin-top: auto;
+  padding: 35px;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+@media (max-width: 700px) {
+
+  .hero h1 {
+    font-size: 2.2rem;
+  }
+
+  .hero p {
+    font-size: .95rem;
+  }
+
+  .board-card {
+    padding: 15px;
+  }
+
+}
