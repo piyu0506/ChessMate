@@ -9,6 +9,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "https://chess-engine-sepia.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
